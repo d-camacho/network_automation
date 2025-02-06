@@ -41,7 +41,7 @@ class CreatePop1(Job):
         # Find or Create Site
         # ----------------------------------------------------------------------------
 
-        location_type_site = LocationType.objects.get_or_create(name=location_type)
+        location_type_site, _ = LocationType.objects.get_or_create(name=location_type)
         active_status = Status.objects.get(name="Active")
         self.site_name = site_name
         self.site_facility = site_facility
@@ -54,7 +54,7 @@ class CreatePop1(Job):
         )
 
         if created:
-            message = f"Site '{site_name}' created as a Region."
+            message = f"Site '{site_name}' created as a top level Region."
             if parent_site:
                 message = f"Site '{site_facility}' successfully nested under '{parent_site.name}'."
             self.logger.info(message)
