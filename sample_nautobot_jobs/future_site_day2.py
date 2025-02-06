@@ -120,64 +120,64 @@ class CreatePop2(Job):
         # ----------------------------------------------------------------------------
         # Search if there is already a POP prefix associated with this side
         # if not search the Top Level Prefix and create a new one
-        # # ROLES["leaf"]["nbr"] = leaf_count
+        # ROLES["leaf"]["nbr"] = leaf_count
         
-        # pop_role, _ = Role.objects.get_or_create(name="pop")
-        # container_status = Status.objects.get_for_model(Prefix).get(name="container")
-        # p2p_status = Status.objects.get_for_model(Prefix).get(name="point-to-point")
-        # prefix_status = Status.objects.get_for_model(Prefix).get(status="Active")
-        # pop_prefix = Prefix.objects.filter(site=self.site, status=container_status, role=pop_role).first()
+        pop_role, _ = Role.objects.get_or_create(name="pop")
+        container_status = Status.objects.get_for_model(Prefix).get(name="container")
+        p2p_status = Status.objects.get_for_model(Prefix).get(name="point-to-point")
+        prefix_status = Status.objects.get_for_model(Prefix).get(status="Active")
+        pop_prefix = Prefix.objects.filter(site=self.site, status=container_status, role=pop_role).first()
 
-        # if not pop_prefix:
-        #     top_level_prefix = Prefix.objects.filter(
-        #         role__slug=slugify(TOP_LEVEL_PREFIX_ROLE), status=container_status
-        #     ).first()
+        if not pop_prefix:
+            top_level_prefix = Prefix.objects.filter(
+                role__slug=slugify(TOP_LEVEL_PREFIX_ROLE), status=container_status
+            ).first()
 
-        #     if not top_level_prefix:
-        #         raise Exception("Unable to find the top level prefix to allocate a Network for this site")
+            if not top_level_prefix:
+                raise Exception("Unable to find the top level prefix to allocate a Network for this site")
 
-        #     first_avail = top_level_prefix.get_first_available_prefix()
-        #     if not first_avail:
-        #         raise Exception("No available /16 prefix in the POP Global Pool.")
-        #     prefix = list(first_avail.subnet(SITE_PREFIX_SIZE))[0]
-        #     pop_prefix = Prefix.objects.create(
-        #         prefix=prefix, site=self.site, status=container_status, role=pop_role
-        #     )
+            first_avail = top_level_prefix.get_first_available_prefix()
+            if not first_avail:
+                raise Exception("No available /16 prefix in the POP Global Pool.")
+            prefix = list(first_avail.subnet(SITE_PREFIX_SIZE))[0]
+            pop_prefix = Prefix.objects.create(
+                prefix=prefix, site=self.site, status=container_status, role=pop_role
+            )
 
-        # iter_subnet = IPv4Network(str(pop_prefix.prefix)).subnets(new_prefix=18)
+        iter_subnet = IPv4Network(str(pop_prefix.prefix)).subnets(new_prefix=18)
 
-        # # Allocate the subnet by block of /18
-        # server_block = next(iter_subnet)
-        # mgmt_block = next(iter_subnet)
-        # loopback_subnet = next(iter_subnet)
-        # p2p_subnet = next(iter_subnet)
+        # Allocate the subnet by block of /18
+        server_block = next(iter_subnet)
+        mgmt_block = next(iter_subnet)
+        loopback_subnet = next(iter_subnet)
+        p2p_subnet = next(iter_subnet)
 
-        # # Create Server & Mgmt Block
-        # server_role, _ = Role.objects.get_or_create(name="server")
-        # Prefix.objects.get_or_create(
-        #     prefix=str(server_block), site=self.site, role=server_role, status=container_status
-        # )
+        # Create Server & Mgmt Block
+        server_role, _ = Role.objects.get_or_create(name="server")
+        Prefix.objects.get_or_create(
+            prefix=str(server_block), site=self.site, role=server_role, status=container_status
+        )
 
-        # mgmt_role, _ = Role.objects.get_or_create(name="mgmt")
-        # Prefix.objects.get_or_create(
-        #     prefix=str(mgmt_block), site=self.site, role=mgmt_role, status=container_status
-        # )
+        mgmt_role, _ = Role.objects.get_or_create(name="mgmt")
+        Prefix.objects.get_or_create(
+            prefix=str(mgmt_block), site=self.site, role=mgmt_role, status=container_status
+        )
 
-        # loopback_role, _ = Role.objects.get_or_create(name="loopback")
-        # Prefix.objects.get_or_create(
-        #     prefix=str(loopback_subnet),
-        #     site=self.site,
-        #     role=loopback_role,
-        #     status=container_status
-        # )
+        loopback_role, _ = Role.objects.get_or_create(name="loopback")
+        Prefix.objects.get_or_create(
+            prefix=str(loopback_subnet),
+            site=self.site,
+            role=loopback_role,
+            status=container_status
+        )
 
-        # p2p_role, _ = Role.objects.get_or_create(name="point-to-point")
-        # Prefix.objects.get_or_create(
-        #     prefix=str(p2p_subnet),
-        #     site=self.site,
-        #     role=p2p_role,
-        #     status=container_status
-        # )
+        p2p_role, _ = Role.objects.get_or_create(name="point-to-point")
+        Prefix.objects.get_or_create(
+            prefix=str(p2p_subnet),
+            site=self.site,
+            role=p2p_role,
+            status=container_status
+        )
 
         
 
