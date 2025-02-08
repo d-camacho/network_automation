@@ -22,7 +22,7 @@ def create_prefix_roles():
 
         
 
-class CreatePop1(Job):
+class CreatePop(Job):
     """Job to create a new site of type POP."""
 
     # location_type = StringVar(description="Type of Location", label="Location Type")
@@ -47,10 +47,10 @@ class CreatePop1(Job):
 
         name = "Create a Point of Presence"
         description = """
-        Create a new Site of Type POP with 2 Edge Routers and N leaf switches.
+        Create a new Site of Type POP.
         A new /16 will automatically be allocated from the 'POP Global Pool' Prefix.
         """
-        field_order = ["parent_site", "location_type", "site_name", "site_facility"]
+        field_order = ["location_type", "parent_site", "site_name", "site_facility"]
 
     def run(self, location_type, site_name, site_facility, parent_site=None):
         """Main function to create a site."""
@@ -85,35 +85,36 @@ class CreatePop1(Job):
             if parent_site:
                 message = f"Site '{site_name}' successfully nested under '{parent_site.name}'."
             self.logger.info(message)
+
+            # ----------------------------------------------------------------------------
+            # Allocate Prefixes for this POP
+            # ----------------------------------------------------------------------------
+            # Search if there is already a POP prefix associated with this side
+            # if not search the Top Level Prefix and create a new one
+
+            pop_role = Role.objects.get(name="pop")
+            self.logger.info(f"Assigning '{site_name}' as '{pop_role}' role.")
+
+            # Find an available /16 prefix that isn't assigned to a site yet
+            pop_prefix = Prefix.objects.filter(
+                type="container",  # Ensure it's a top-level subnet assigned as a container
+                prefix_length=POP_PREFIX_SIZE,
+                status__name="Active",
+                location__isnull=True  # Ensure it's not already assigned to another site
+            ).first()
+
+            if pop_prefix:
+                # Assign the prefix to the new site 
+                pop_prefix.location = self.site
+                pop_prefix.validated_save()
+                self.logger.info(f"Assigned {pop_prefix} to {self.site.name}.")
+            else:
+                self.logger.warning("No available /16 prefixes found!")        
+        
         else:
-            self.logger.warning(f"Site '{site_name}' already exists.")
-
-        # ----------------------------------------------------------------------------
-        # Allocate Prefixes for this POP
-        # ----------------------------------------------------------------------------
-        # Search if there is already a POP prefix associated with this side
-        # if not search the Top Level Prefix and create a new one
-
-        pop_role = Role.objects.get(name="pop")
-        self.logger.info(f"Assigning '{site_name}' as '{pop_role}' role.")
-
-        # Find an available /16 prefix that isn't assigned to a site yet
-        pop_prefix = Prefix.objects.filter(
-            type="container",  # Ensure it's a top-level subnet assigned as a container
-            prefix_length=POP_PREFIX_SIZE,
-            status__name="Active",
-            location__isnull=True  # Ensure it's not already assigned to another site
-        ).first()
-
-        if pop_prefix:
-            # Assign the prefix to the new site
-            pop_prefix.location = self.site
-            pop_prefix.validated_save()
-            self.logger.info(f"Assigned {pop_prefix} to {self.site.name}.")
-        else:
-            self.logger.warning("No available /16 prefixes found!")
+            self.logger.warning(f"Site '{site_name}' already exists.")        
 
 
-# register_jobs(
-#     CreatePop1
-# )
+register_jobs(
+    CreatePop
+)
