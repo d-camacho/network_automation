@@ -27,8 +27,7 @@ def create_prefix_roles():
 
 class CreatePop(Job):
     """Job to create a new site of type POP."""
-
-    # location_type = StringVar(description="Type of Location", label="Location Type")
+    
     location_type = ObjectVar(
         model=LocationType,
         description = "Select location type for new site."
@@ -129,10 +128,56 @@ class CreatePop(Job):
         else:
             print(f"No prefix found for site: {site_name}")
         
-        site_subnets = IPv4Network(str(site.prefixes.first())).subnets(new_prefix=18)
-        for subnet in site_subnets:
-            self.logger.info(f"Created '{subnet}' for '{site}'.")
-        
+        site_subnets = IPv4Network(str(site.prefixes.first())).subnets(new_prefix=ROLE_PREFIX_SIZE)
+
+        # Divide POP Prefix into blocks of of /18
+        server_subnet = next(site_subnets)    
+        mgmt_subnet = next(site_subnets)    
+        loopback_subnet = next(site_subnets)     
+        p2p_subnet = next(site_subnets) 
+
+        # Assign new subnets to roles
+        server_role = Role.objects.get(name="server")
+        server_prefix, created = Prefix.objects.get_or_create(
+            prefix = str(server_subnet), 
+            type = "network",
+            role = server_role,
+            parent = pop_prefix,
+            status = active_status,
+            location = self.site
+        )
+        self.logger.info(f"'{server_prefix}' assigned to '{server_role}'.")
+
+        mgmt_role = Role.objects.get(name="mgmt")
+        mgmt_prefix, created = Prefix.objects.get_or_create(
+            prefix = str(mgmt_subnet),
+            type = "network", 
+            role = mgmt_role,
+            parent = pop_prefix,
+            status = active_status
+        )
+        self.logger.info(f"'{mgmt_prefix}' assigned to '{mgmt_role}'.")
+
+        loopback_role = Role.objects.get(name="loopback")
+        loopback_prefix, created = Prefix.objects.get_or_create(
+            prefix = str(loopback_subnet),
+            type = "network", 
+            role = loopback_role,
+            parent = pop_prefix,
+            status = active_status
+        )
+        self.logger.info(f"'{loopback_prefix}' assigned to '{loopback_role}'.")
+
+        p2p_role = Role.objects.get(name="p2p")
+        p2p_prefix, created = Prefix.objects.get_or_create(
+            prefix = str(p2p_subnet),
+            type = "network",
+            location = self.site,
+            role = p2p_role,
+            parent = pop_prefix,
+            status = active_status
+        )
+        self.logger.info(f"'{p2p_prefix}' assigned to '{p2p_role}'.")
 
 register_jobs(
     CreatePop
