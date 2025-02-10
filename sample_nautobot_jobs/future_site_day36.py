@@ -1,5 +1,4 @@
-
-"""Job to create a new site of type POP with optional parent site support."""
+"""Job to create a new POP site"""
 
 from nautobot.apps.jobs import Job, ObjectVar, register_jobs, StringVar
 from nautobot.dcim.models.locations import Location, LocationType
@@ -25,7 +24,6 @@ def create_prefix_roles():
 class CreatePop(Job):
     """Job to create a new site of type POP."""
 
-    # location_type = StringVar(description="Type of Location", label="Location Type")
     location_type = ObjectVar(
         model=LocationType,
         description = "Select location type for new site."
@@ -57,7 +55,7 @@ class CreatePop(Job):
 
         # ----------------------------------------------------------------------------
         # Initialize the database with all required objects
-        # We will build on this in coming days
+        # We will build on this in the coming days
         # ----------------------------------------------------------------------------
         
         create_prefix_roles()
