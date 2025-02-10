@@ -6,6 +6,7 @@ import re
 from django.contrib.contenttypes.models import ContentType
 import yaml
 
+from nautobot.apps.jobs import Job, register_jobs
 from nautobot.dcim.models import DeviceType, Manufacturer
 from nautobot.dcim.models.device_component_templates import InterfaceTemplate
 from nautobot.extras.models import Status
@@ -13,16 +14,10 @@ from nautobot.extras.models.roles import Role
 from nautobot.ipam.models import Prefix, VLAN
 from nautobot.tenancy.models import Tenant
 
-####DAY36####
-from nautobot.apps.jobs import Job, ObjectVar, register_jobs, StringVar
-from nautobot.dcim.models.locations import Location, LocationType
-
-
 name = "Data Population Jobs Collection"
 
 
 PREFIX_ROLES = ["p2p", "loopback", "server", "mgmt", "pop"]
-####DAY36####
 POP_PREFIX_SIZE = 16
 TENANT_NAME = "Data Center"
 ACTIVE_STATUS = Status.objects.get(name="Active")
@@ -199,39 +194,18 @@ def expand_interface_pattern(pattern):
 
 class CreatePop(Job):
     """Job to create a new site of type POP."""
-    ####DAY36####
-    # Receive input from user about site iformation
-    location_type = ObjectVar(
-    model=LocationType,
-    description = "Select location type for new site."
-    )
-    site_name = StringVar(description="Name of the new site", label="Site Name")
-    site_facility = StringVar(description="Facility of the new site", label="Site Facility")
-    parent_site = ObjectVar(
-        model=Location,
-        required=False,
-        description="Select an existing site to nest this site under. Site will be created as a Region if left blank.",
-        label="Parent Site"
-    )
-    tenant = ObjectVar(model=Tenant)
 
     class Meta:
         """Metadata for CreatePop."""
 
         name = "Create a Point of Presence"
         description = """
-        Create a new POP Site.
+        Create a new Site of Type POP.
         A new /16 will automatically be allocated from the 'POP Global Pool' Prefix.
         """
-        
-        ####DAY36####
-        field_order = ["location_type", "parent_site", "site_name", "site_facility"]
-        
-        
-    ####DAY36PassNewParameters####
-    def run(self, location_type, site_name, site_facility, tenant, parent_site=None):
-        """Main function to create a site."""
 
+    def run(self):
+        """Main function to create a site."""
         # ----------------------------------------------------------------------------
         # Initialize the database with all required objects.
         # We will build on this in the coming days.
@@ -241,51 +215,5 @@ class CreatePop(Job):
         create_vlans(self.logger)
         create_device_types(self.logger)
 
-        # ----------------------------------------------------------------------------
-        # Create Site
-        # ----------------------------------------------------------------------------
-        location_type_site, _ = LocationType.objects.get_or_create(name=location_type)
-        self.site_name = site_name
-        self.site_facility = site_facility
-        self.site, created = Location.objects.get_or_create(
-            name = site_name,
-            location_type = LocationType.objects.get(name=location_type),
-            facility = site_facility,
-            status = ACTIVE_STATUS,
-            parent = parent_site,  # Will be None if not provided
-            tenant = tenant
-        )
-
-        if created:
-            message = f"Site '{site_name}' created as a top level Region."
-            if parent_site:
-                message = f"Site '{site_name}' successfully nested under '{parent_site.name}'."
-            self.logger.info(message)
-
-            # ----------------------------------------------------------------------------
-            # Create role and allocate main /16 prefix for this POP
-            # ----------------------------------------------------------------------------
-            pop_role = Role.objects.get(name="pop")
-            self.logger.info(f"Assigning '{site_name}' as '{pop_role}' role.")
-
-            # Find the first available /16 prefix that isn't assigned to a site yet
-            pop_prefix = Prefix.objects.filter(
-                type="container",  # Ensure it's a top-level subnet assigned as a container
-                prefix_length=POP_PREFIX_SIZE,
-                status__name="Active",
-                location__isnull=True  # Ensure it's not already assigned to another site
-            ).first()
-
-            if pop_prefix:
-                # Assign the prefix to the new site 
-                pop_prefix.location = self.site
-                pop_prefix.validated_save()
-                self.logger.info(f"Assigned {pop_prefix} to {self.site.name}.")
-            else:
-                self.logger.warning("No available /16 prefixes found!")        
-        
-        else:
-            self.logger.warning(f"Site '{site_name}' already exists.") 
-        
 
 register_jobs(CreatePop)
