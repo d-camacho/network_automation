@@ -1,3 +1,4 @@
+
 """Job to create a new site of type POP with optional parent site support."""
 
 from itertools import product
@@ -16,6 +17,7 @@ from nautobot.tenancy.models import Tenant
 ####DAY36####
 from nautobot.apps.jobs import Job, ObjectVar, register_jobs, StringVar
 from nautobot.dcim.models.locations import Location, LocationType
+from ipaddress import IPv4Network
 
 
 name = "Data Population Jobs Collection"
@@ -24,6 +26,8 @@ name = "Data Population Jobs Collection"
 PREFIX_ROLES = ["p2p", "loopback", "server", "mgmt", "pop"]
 ####DAY36####
 POP_PREFIX_SIZE = 16
+####DAY37####
+ROLE_PREFIX_SIZE = 18
 TENANT_NAME = "Data Center"
 ACTIVE_STATUS = Status.objects.get(name="Active")
 # VLAN definitions: key is also used to look up the role.
@@ -255,37 +259,125 @@ class CreatePop(Job):
             parent = parent_site,  # Will be None if not provided
             tenant = tenant
         )
-
+        
         if created:
             message = f"Site '{site_name}' created as a top level Region."
             if parent_site:
                 message = f"Site '{site_name}' successfully nested under '{parent_site.name}'."
+            self.site.validated_save()
             self.logger.info(message)
 
             # ----------------------------------------------------------------------------
-            # Create role and allocate main /16 prefix for this POP
+            # Allocate Prefix for this POP
             # ----------------------------------------------------------------------------
+            # Search if there is already a POP prefix associated with this side
+            # if not search the Top Level Prefix and create a new one
             pop_role = Role.objects.get(name="pop")
             self.logger.info(f"Assigning '{site_name}' as '{pop_role}' role.")
 
             # Find the first available /16 prefix that isn't assigned to a site yet
             pop_prefix = Prefix.objects.filter(
                 type="container",  # Ensure it's a top-level subnet assigned as a container
-                prefix_length=POP_PREFIX_SIZE,
-                status__name="Active",
-                location__isnull=True  # Ensure it's not already assigned to another site
+                prefix_length = POP_PREFIX_SIZE,
+                status = ACTIVE_STATUS,
+                location__isnull = True  # Ensure it's not already assigned to another site
             ).first()
 
             if pop_prefix:
                 # Assign the prefix to the new site 
                 pop_prefix.location = self.site
                 pop_prefix.validated_save()
-                self.logger.info(f"Assigned {pop_prefix} to {self.site.name}.")
-            else:
-                self.logger.warning("No available /16 prefixes found!")        
+                self.logger.info(f"Assigned {pop_prefix} to {site_name}.")
+            else:                 
+                self.logger.warning("No available /16 prefixes found. Creating a new /16.")
+                
+                # Search for top-level /8 prefixes
+                top_level_prefix = Prefix.objects.filter(
+                    type = "container",  
+                    status = ACTIVE_STATUS,
+                    prefix_length = 8
+                ).first()
+
+                # Get the first available prefix within the /8
+                first_avail = top_level_prefix.get_first_available_prefix()
+
+                if not first_avail:
+                    raise Exception("No available subnets found within the /8 prefix.")
+
+                # Iterate over all possible /16 subnets within the /8 and find the first unassigned one
+                for candidate_prefix in IPv4Network(str(first_avail)).subnets(new_prefix=POP_PREFIX_SIZE):
+                    if not Prefix.objects.filter(prefix=str(candidate_prefix)).exists():
+                        pop_prefix, created = Prefix.objects.get_or_create(
+                            prefix=str(candidate_prefix),
+                            type="container",
+                            location=self.site,
+                            status=ACTIVE_STATUS,
+                            role=pop_role
+                        )
+                        pop_prefix.validated_save()
+                        self.logger.info(f"Allocated new'{pop_prefix}' for site '{site_name}'.")
+                        break
+                else:
+                    raise Exception("No available /16 prefixes found within the /8 range.")        
         
         else:
             self.logger.warning(f"Site '{site_name}' already exists.") 
+
+
+        # ----------------------------------------------------------------------------
+        # Create and assign prefixes to roles in POP
+        # ----------------------------------------------------------------------------
+        
+        site_subnets = IPv4Network(str(pop_prefix)).subnets(new_prefix=ROLE_PREFIX_SIZE)
+
+        # Divide POP Prefix into blocks of of /18
+        server_subnet = next(site_subnets)    
+        mgmt_subnet = next(site_subnets)    
+        loopback_subnet = next(site_subnets)     
+        p2p_subnet = next(site_subnets) 
+
+        # Assign new subnets to roles
+        server_role = Role.objects.get(name="server")
+        server_prefix, created = Prefix.objects.get_or_create(
+            prefix = str(server_subnet), 
+            type = "network",
+            role = server_role,
+            parent = pop_prefix,
+            status = ACTIVE_STATUS,
+            location = self.site
+        )
+        self.logger.info(f"'{server_prefix}' assigned to '{server_role}'.")
+
+        mgmt_role = Role.objects.get(name="mgmt")
+        mgmt_prefix, created = Prefix.objects.get_or_create(
+            prefix = str(mgmt_subnet),
+            type = "network", 
+            role = mgmt_role,
+            parent = pop_prefix,
+            status = ACTIVE_STATUS
+        )
+        self.logger.info(f"'{mgmt_prefix}' assigned to '{mgmt_role}'.")
+
+        loopback_role = Role.objects.get(name="loopback")
+        loopback_prefix, created = Prefix.objects.get_or_create(
+            prefix = str(loopback_subnet),
+            type = "network", 
+            role = loopback_role,
+            parent = pop_prefix,
+            status = ACTIVE_STATUS
+        )
+        self.logger.info(f"'{loopback_prefix}' assigned to '{loopback_role}'.")
+
+        p2p_role = Role.objects.get(name="p2p")
+        p2p_prefix, created = Prefix.objects.get_or_create(
+            prefix = str(p2p_subnet),
+            type = "network",
+            location = self.site,
+            role = p2p_role,
+            parent = pop_prefix,
+            status = ACTIVE_STATUS
+        )
+        self.logger.info(f"'{p2p_prefix}' assigned to '{p2p_role}'.") 
         
 
 register_jobs(CreatePop)
