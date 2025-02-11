@@ -344,7 +344,8 @@ class CreatePop(Job):
             role = server_role,
             parent = pop_prefix,
             status = ACTIVE_STATUS,
-            location = self.site
+            location = self.site,
+            tenant = tenant
         )
         self.logger.info(f"'{server_prefix}' assigned to '{server_role}'.")
 
@@ -354,7 +355,9 @@ class CreatePop(Job):
             type = "network", 
             role = mgmt_role,
             parent = pop_prefix,
-            status = ACTIVE_STATUS
+            status = ACTIVE_STATUS,
+            location = self.site,
+            tenant = tenant
         )
         self.logger.info(f"'{mgmt_prefix}' assigned to '{mgmt_role}'.")
 
@@ -364,7 +367,9 @@ class CreatePop(Job):
             type = "network", 
             role = loopback_role,
             parent = pop_prefix,
-            status = ACTIVE_STATUS
+            status = ACTIVE_STATUS,
+            location = self.site,
+            tenant = tenant
         )
         self.logger.info(f"'{loopback_prefix}' assigned to '{loopback_role}'.")
 
@@ -375,7 +380,9 @@ class CreatePop(Job):
             location = self.site,
             role = p2p_role,
             parent = pop_prefix,
-            status = ACTIVE_STATUS
+            status = ACTIVE_STATUS,
+            location = self.site,
+            tenant = tenant
         )
         self.logger.info(f"'{p2p_prefix}' assigned to '{p2p_role}'.") 
         
