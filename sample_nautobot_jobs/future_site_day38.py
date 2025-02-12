@@ -21,6 +21,7 @@ from ipaddress import IPv4Network
 
 ####DAY38#####
 from nautobot.dcim.models.racks import Rack
+from nautobot.dcim.choices import RackTypeChoices
 
 name = "Data Population Jobs Collection"
 
@@ -97,6 +98,7 @@ ROLES = {
 }
 
 RACK_HEIGHT = 48
+RACK_WIDTH = 19
 RACK_TYPE = RackTypeChoices.TYPE_4POST
 
 def create_prefix_roles(logger):
@@ -410,7 +412,6 @@ class CreatePop(Job):
         p2p_prefix, created = Prefix.objects.get_or_create(
             prefix = str(p2p_subnet),
             type = "network",
-            location = self.site,
             role = p2p_role,
             parent = pop_prefix,
             status = ACTIVE_STATUS,
@@ -422,30 +423,31 @@ class CreatePop(Job):
         # ----------------------------------------------------------------------------
         # Create Racks
         # ----------------------------------------------------------------------------
-        rack_status = Status.objects.get_for_model(Rack).get(status="active") ####might have to change to ACTIVE_STATUS
-        for i in range(1, ROLES["leaf"]["nbr"] + 1): ####Provide explanation
-            rack_name = f"{site_code}-{100 + i}"
-            rack = Rack.objects.get_or_create(
+        num_rack = 2 # Number of racks to create. Can be converted as an input parameter
+        for i in range(1, num_rack + 1): 
+            rack_name = f"{site_code.upper()}-{100 + i}"            
+            rack, created = Rack.objects.get_or_create(
                 name=rack_name,
                 location=self.site,
                 u_height=RACK_HEIGHT,
+                width=RACK_WIDTH,
                 type=RACK_TYPE,
-                status=rack_status,
-                tenant=self.tenant,
+                status=ACTIVE_STATUS,
+                tenant=tenant,
             )
+            self.logger.info(f"Successfully created {rack_name}.")
 
         # ----------------------------------------------------------------------------
         # Create Devices
         # ----------------------------------------------------------------------------
-        ip_status = Status.objects.get_for_model(IPAddress).get(slug="active")
-        vlan_status = Status.objects.get_for_model(VLAN).get(slug="active")
+        # ip_status = Status.objects.get_for_model(IPAddress).get(slug="active")
+        # vlan_status = Status.objects.get_for_model(VLAN).get(slug="active")
         for role, data in ROLES.items():
             for i in range(1, data.get("nbr", 2) + 1):
 
-                rack_name = f"{site_code}-{100 + i}"
-                rack = Rack.objects.filter(name=rack_name, site=self.site).first()
-                platform = Platform.objects.filter(slug=data["platform"]).first()
-
+                rack_name = f"{site_code}-{100 + i}" # Why define it again?
+                rack = Rack.objects.filter(name=rack_name, site=self.site).first() # Why not just use the rack object created above?
+                platform = Platform.objects.filter(slug=data["platform"]).first() # This is already defined with device type?
                 device_name = f"{site_code}-{role}-{i:02}"
 
                 device = Device.objects.filter(name=device_name).first()
