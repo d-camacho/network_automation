@@ -21,7 +21,10 @@ from ipaddress import IPv4Network
 ####DAY38#####
 from nautobot.dcim.models.racks import Rack
 from nautobot.dcim.choices import RackTypeChoices
+<<<<<<< HEAD
 from nautobot.dcim.models.devices import Device, DeviceType, Platform, Manufacturer
+=======
+>>>>>>> origin/main
 
 name = "Data Population Jobs Collection"
 
@@ -100,7 +103,13 @@ DEVICE_ROLES = {
     },
 }
 
+<<<<<<< HEAD
 
+=======
+RACK_HEIGHT = 48
+RACK_WIDTH = 19
+RACK_TYPE = RackTypeChoices.TYPE_4POST
+>>>>>>> origin/main
 
 def create_prefix_roles(logger):
     """Create all Prefix Roles defined in PREFIX_ROLES and add content types for IPAM Prefix and VLAN."""
@@ -426,6 +435,7 @@ class CreatePop(Job):
         # ----------------------------------------------------------------------------
         num_rack = 2 # Number of racks to create. Can be converted as an input parameter
         for i in range(1, num_rack + 1): 
+<<<<<<< HEAD
             rack_name = f"{site_code.upper()}-{100 +  i}"         
             rack, created = Rack.objects.get_or_create(
                 name = rack_name,
@@ -435,12 +445,24 @@ class CreatePop(Job):
                 type = RACK_TYPE,
                 status = ACTIVE_STATUS,
                 tenant = tenant,
+=======
+            rack_name = f"{site_code.upper()}-{100 + i}"            
+            rack, created = Rack.objects.get_or_create(
+                name=rack_name,
+                location=self.site,
+                u_height=RACK_HEIGHT,
+                width=RACK_WIDTH,
+                type=RACK_TYPE,
+                status=ACTIVE_STATUS,
+                tenant=tenant,
+>>>>>>> origin/main
             )
             self.logger.info(f"Successfully created {rack_name}.")
 
         # ----------------------------------------------------------------------------
         # Create Devices
         # ----------------------------------------------------------------------------
+<<<<<<< HEAD
         #####DEFINE CONTENT TYPE FOR LEAF AND EDGE HERE#########
         for role, data in DEVICE_ROLES.items():
             device_role, created = Role.objects.get_or_create(
@@ -467,6 +489,43 @@ class CreatePop(Job):
                     position = position, 
                     face = "front",                   
                     tenant = tenant,
+=======
+        # ip_status = Status.objects.get_for_model(IPAddress).get(slug="active")
+        # vlan_status = Status.objects.get_for_model(VLAN).get(slug="active")
+        for role, data in ROLES.items():
+            for i in range(1, data.get("nbr", 2) + 1):
+
+                rack_name = f"{site_code}-{100 + i}" # Why define it again?
+                rack = Rack.objects.filter(name=rack_name, site=self.site).first() # Why not just use the rack object created above?
+                platform = Platform.objects.filter(slug=data["platform"]).first() # This is already defined with device type?
+                device_name = f"{site_code}-{role}-{i:02}"
+
+                device = Device.objects.filter(name=device_name).first()
+                if device:
+                    self.devices[device_name] = device
+                    if not device.platform and platform:
+                        device.platform = platform
+                        device.validated_save()
+
+                    self.log_success(obj=device, message=f"Device {device_name} already present")
+                    continue
+
+                device_status = Status.objects.get_for_model(Device).get(slug="active")
+                device_role, _ = DeviceRole.objects.get_or_create(
+                    name=role, slug=slugify(role), color=ROLES[role]["color"]
+                )
+                device = Device.objects.create(
+                    device_type=DeviceType.objects.get(slug=data.get("device_type")),
+                    name=device_name,
+                    site=self.site,
+                    status=device_status,
+                    device_role=device_role,
+                    rack=rack,
+                    platform=platform,
+                    position=data.get("rack_elevation"),
+                    face="front",
+                    tenant=self.tenant,
+>>>>>>> origin/main
                 )
                 self.logger.info(f"Device {device_name} successfully created")
                 position += 1
