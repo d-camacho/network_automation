@@ -21,10 +21,7 @@ from ipaddress import IPv4Network
 ####DAY38#####
 from nautobot.dcim.models.racks import Rack
 from nautobot.dcim.choices import RackTypeChoices
-<<<<<<< HEAD
 from nautobot.dcim.models.devices import Device, DeviceType, Platform, Manufacturer
-=======
->>>>>>> origin/main
 
 name = "Data Population Jobs Collection"
 
@@ -103,13 +100,6 @@ DEVICE_ROLES = {
     },
 }
 
-<<<<<<< HEAD
-
-=======
-RACK_HEIGHT = 48
-RACK_WIDTH = 19
-RACK_TYPE = RackTypeChoices.TYPE_4POST
->>>>>>> origin/main
 
 def create_prefix_roles(logger):
     """Create all Prefix Roles defined in PREFIX_ROLES and add content types for IPAM Prefix and VLAN."""
@@ -435,7 +425,6 @@ class CreatePop(Job):
         # ----------------------------------------------------------------------------
         num_rack = 2 # Number of racks to create. Can be converted as an input parameter
         for i in range(1, num_rack + 1): 
-<<<<<<< HEAD
             rack_name = f"{site_code.upper()}-{100 +  i}"         
             rack, created = Rack.objects.get_or_create(
                 name = rack_name,
@@ -445,24 +434,12 @@ class CreatePop(Job):
                 type = RACK_TYPE,
                 status = ACTIVE_STATUS,
                 tenant = tenant,
-=======
-            rack_name = f"{site_code.upper()}-{100 + i}"            
-            rack, created = Rack.objects.get_or_create(
-                name=rack_name,
-                location=self.site,
-                u_height=RACK_HEIGHT,
-                width=RACK_WIDTH,
-                type=RACK_TYPE,
-                status=ACTIVE_STATUS,
-                tenant=tenant,
->>>>>>> origin/main
             )
             self.logger.info(f"Successfully created {rack_name}.")
 
         # ----------------------------------------------------------------------------
         # Create Devices
         # ----------------------------------------------------------------------------
-<<<<<<< HEAD
         #####DEFINE CONTENT TYPE FOR LEAF AND EDGE HERE#########
         for role, data in DEVICE_ROLES.items():
             device_role, created = Role.objects.get_or_create(
@@ -489,135 +466,98 @@ class CreatePop(Job):
                     position = position, 
                     face = "front",                   
                     tenant = tenant,
-=======
-        # ip_status = Status.objects.get_for_model(IPAddress).get(slug="active")
-        # vlan_status = Status.objects.get_for_model(VLAN).get(slug="active")
-        for role, data in ROLES.items():
-            for i in range(1, data.get("nbr", 2) + 1):
-
-                rack_name = f"{site_code}-{100 + i}" # Why define it again?
-                rack = Rack.objects.filter(name=rack_name, site=self.site).first() # Why not just use the rack object created above?
-                platform = Platform.objects.filter(slug=data["platform"]).first() # This is already defined with device type?
-                device_name = f"{site_code}-{role}-{i:02}"
-
-                device = Device.objects.filter(name=device_name).first()
-                if device:
-                    self.devices[device_name] = device
-                    if not device.platform and platform:
-                        device.platform = platform
-                        device.validated_save()
-
-                    self.log_success(obj=device, message=f"Device {device_name} already present")
-                    continue
-
-                device_status = Status.objects.get_for_model(Device).get(slug="active")
-                device_role, _ = DeviceRole.objects.get_or_create(
-                    name=role, slug=slugify(role), color=ROLES[role]["color"]
-                )
-                device = Device.objects.create(
-                    device_type=DeviceType.objects.get(slug=data.get("device_type")),
-                    name=device_name,
-                    site=self.site,
-                    status=device_status,
-                    device_role=device_role,
-                    rack=rack,
-                    platform=platform,
-                    position=data.get("rack_elevation"),
-                    face="front",
-                    tenant=self.tenant,
->>>>>>> origin/main
                 )
                 self.logger.info(f"Device {device_name} successfully created")
                 position += 1
 
-                # # Generate Loopback interface and assign Loopback
-                # loopback_intf = Interface.objects.create(
-                #     name="Loopback0", type=InterfaceTypeChoices.TYPE_VIRTUAL, device=device
-                # )
+                # Generate Loopback interface and assign Loopback
+                loopback_intf = Interface.objects.create(
+                    name="Loopback0", type=InterfaceTypeChoices.TYPE_VIRTUAL, device=device
+                )
 
-                # loopback_prefix = Prefix.objects.get(
-                #     site=self.site,
-                #     role__name="loopback",
-                # )
+                loopback_prefix = Prefix.objects.get(
+                    site=self.site,
+                    role__name="loopback",
+                )
 
-                # available_ips = loopback_prefix.get_available_ips()
-                # address = list(available_ips)[0]
-                # loopback_ip = IPAddress.objects.create(
-                #     address=str(address),
-                #     assigned_object=loopback_intf,
-                #     status=ip_status,
-                #     tenant=self.tenant,
-                #     dns_name=f"{role}-{i:02}.{site_code}.{self.tenant.description}",
-                # )
-                # device.primary_ip4 = loopback_ip
-                # device.clean()
-                # device.validated_save()
+                available_ips = loopback_prefix.get_available_ips()
+                address = list(available_ips)[0]
+                loopback_ip = IPAddress.objects.create(
+                    address=str(address),
+                    assigned_object=loopback_intf,
+                    status=ip_status,
+                    tenant=self.tenant,
+                    dns_name=f"{role}-{i:02}.{site_code}.{self.tenant.description}",
+                )
+                device.primary_ip4 = loopback_ip
+                device.clean()
+                device.validated_save()
 
-                # # Assign Role to Interfaces
-                # intfs = iter(Interface.objects.filter(device=device))
-                # for int_role, cnt in data["interfaces"]:
-                #     for i in range(0, cnt):
-                #         intf = next(intfs)
-                #         intf._custom_field_data = {"role": int_role}
-                #         intf.validated_save()
+                # Assign Role to Interfaces
+                intfs = iter(Interface.objects.filter(device=device))
+                for int_role, cnt in data["interfaces"]:
+                    for i in range(0, cnt):
+                        intf = next(intfs)
+                        intf._custom_field_data = {"role": int_role}
+                        intf.validated_save()
 
-                # if role == "leaf":
-                #     for vlan_name, vlan_data in VLANS.items():
-                #         prefix_role = Role.objects.get(slug=vlan_name)
-                #         vlan = VLAN.objects.create(
-                #             vid=vlan_data["vlan_id"],
-                #             name=f"{rack_name}-{vlan_name}",
-                #             site=self.site,
-                #             role=prefix_role,
-                #             status=vlan_status,
-                #             tenant=self.tenant,
-                #         )
-                #         vlan_block = Prefix.objects.filter(
-                #             site=self.site, status=container_status, role=prefix_role
-                #         ).first()
+                if role == "leaf":
+                    for vlan_name, vlan_data in VLANS.items():
+                        prefix_role = Role.objects.get(slug=vlan_name)
+                        vlan = VLAN.objects.create(
+                            vid=vlan_data["vlan_id"],
+                            name=f"{rack_name}-{vlan_name}",
+                            site=self.site,
+                            role=prefix_role,
+                            status=vlan_status,
+                            tenant=self.tenant,
+                        )
+                        vlan_block = Prefix.objects.filter(
+                            site=self.site, status=container_status, role=prefix_role
+                        ).first()
 
-                #         # Find Next available Network
-                #         first_avail = vlan_block.get_first_available_prefix()
-                #         subnet = list(first_avail.subnet(24))[0]
-                #         vlan_prefix = Prefix.objects.create(
-                #             prefix=str(subnet),
-                #             vlan=vlan,
-                #             status=prefix_status,
-                #             role=prefix_role,
-                #             site=self.site,
-                #             tenant=self.tenant,
-                #         )
-                #         vlan_prefix.validated_save()
+                        # Find Next available Network
+                        first_avail = vlan_block.get_first_available_prefix()
+                        subnet = list(first_avail.subnet(24))[0]
+                        vlan_prefix = Prefix.objects.create(
+                            prefix=str(subnet),
+                            vlan=vlan,
+                            status=prefix_status,
+                            role=prefix_role,
+                            site=self.site,
+                            tenant=self.tenant,
+                        )
+                        vlan_prefix.validated_save()
 
-                #         intf_name = f"vlan{vlan_data['vlan_id']}"
-                #         intf = Interface.objects.create(
-                #             name=intf_name, device=device, type=InterfaceTypeChoices.TYPE_VIRTUAL
-                #         )
+                        intf_name = f"vlan{vlan_data['vlan_id']}"
+                        intf = Interface.objects.create(
+                            name=intf_name, device=device, type=InterfaceTypeChoices.TYPE_VIRTUAL
+                        )
 
-                #         # Create IP Addresses on both sides
-                #         vlan_ip = IPAddress.objects.create(
-                #             address=str(subnet[0]),
-                #             assigned_object=intf,
-                #             status=ip_status,
-                #             tenant=self.tenant,
-                #             dns_name=f"ip-{str(subnet[0]).replace('.', '-')}.{vlan_name}.{site_code}.{self.tenant.description}",
-                #         )
+                        # Create IP Addresses on both sides
+                        vlan_ip = IPAddress.objects.create(
+                            address=str(subnet[0]),
+                            assigned_object=intf,
+                            status=ip_status,
+                            tenant=self.tenant,
+                            dns_name=f"ip-{str(subnet[0]).replace('.', '-')}.{vlan_name}.{site_code}.{self.tenant.description}",
+                        )
 
-                #         RelationshipAssociation.objects.create(
-                #             relationship=rel_device_vlan,
-                #             source_type=rel_device_vlan.source_type,
-                #             source_id=device.id,
-                #             destination_type=rel_device_vlan.destination_type,
-                #             destination_id=vlan.id,
-                #         )
+                        RelationshipAssociation.objects.create(
+                            relationship=rel_device_vlan,
+                            source_type=rel_device_vlan.source_type,
+                            source_id=device.id,
+                            destination_type=rel_device_vlan.destination_type,
+                            destination_id=vlan.id,
+                        )
 
-                #         RelationshipAssociation.objects.create(
-                #             relationship=rel_rack_vlan,
-                #             source_type=rel_rack_vlan.source_type,
-                #             source_id=rack.id,
-                #             destination_type=rel_rack_vlan.destination_type,
-                #             destination_id=vlan.id,
-                #         )
+                        RelationshipAssociation.objects.create(
+                            relationship=rel_rack_vlan,
+                            source_type=rel_rack_vlan.source_type,
+                            source_id=rack.id,
+                            destination_type=rel_rack_vlan.destination_type,
+                            destination_id=vlan.id,
+                        )
         
         
 
