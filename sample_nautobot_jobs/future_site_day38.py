@@ -10,7 +10,6 @@ import yaml
 from nautobot.dcim.models.device_component_templates import InterfaceTemplate
 from nautobot.extras.models import Status
 from nautobot.extras.models.roles import Role
-from nautobot.ipam.models import Prefix, VLAN
 from nautobot.tenancy.models import Tenant
 
 ####DAY36####
@@ -20,8 +19,10 @@ from ipaddress import IPv4Network
 
 ####DAY38#####
 from nautobot.dcim.models.racks import Rack
-from nautobot.dcim.choices import RackTypeChoices
 from nautobot.dcim.models.devices import Device, DeviceType, Platform, Manufacturer
+from nautobot.dcim.models.device_components import Interface
+from nautobot.dcim.choices import RackTypeChoices, InterfaceTypeChoices
+from nautobot.ipam.models import Prefix, VLAN, IPAddress
 
 name = "Data Population Jobs Collection"
 
@@ -471,94 +472,95 @@ class CreatePop(Job):
                 position += 1
 
                 # Generate Loopback interface and assign Loopback
-                loopback_intf = Interface.objects.create(
-                    name="Loopback0", type=InterfaceTypeChoices.TYPE_VIRTUAL, device=device
-                )
-
                 loopback_prefix = Prefix.objects.get(
-                    site=self.site,
-                    role__name="loopback",
+                    location = self.site,
+                    role = loopback_role,
                 )
 
-                available_ips = loopback_prefix.get_available_ips()
-                address = list(available_ips)[0]
-                loopback_ip = IPAddress.objects.create(
-                    address=str(address),
-                    assigned_object=loopback_intf,
-                    status=ip_status,
-                    tenant=self.tenant,
-                    dns_name=f"{role}-{i:02}.{site_code}.{self.tenant.description}",
+                loopback_available_ip = loopback_prefix.get_first_available_ip()
+                loopback_ip, created = IPAddress.objects.get_or_create(
+                    address = str(loopback_available_ip),
+                    status = ACTIVE_STATUS,
+                    tenant = tenant,
+                    dns_name=f"{role}-{i:02}.{site_code}.{tenant.description}",
                 )
-                device.primary_ip4 = loopback_ip
-                device.clean()
-                device.validated_save()
+                loopback_intf, created = Interface.objects.get_or_create(
+                    name="Loopback0", 
+                    type=InterfaceTypeChoices.TYPE_VIRTUAL, 
+                    device=device_obj, 
+                    status=ACTIVE_STATUS,
+                    ip_addresses=str(loopback_available_ip)
+                )
+                self.logger.info(f"{loopback_intf}")
+                
+                device_obj.primary_ip4 = loopback_ip
+                self.logger.info(f" Created '{loopback_intf}' with '{loopback_available_ip}' to {device_name}")
 
-                # Assign Role to Interfaces
-                intfs = iter(Interface.objects.filter(device=device))
-                for int_role, cnt in data["interfaces"]:
-                    for i in range(0, cnt):
-                        intf = next(intfs)
-                        intf._custom_field_data = {"role": int_role}
-                        intf.validated_save()
+                # # Assign Role to Interfaces
+                # intfs = iter(Interface.objects.filter(device=device_obj))
+                # for int_role, cnt in data.get["interfaces"]:
+                #     for i in range(0, cnt):
+                #         intf = next(intfs)
+                #         intf._custom_field_data = {"role": int_role}
+                #         intf.validated_save()
 
-                if role == "leaf":
-                    for vlan_name, vlan_data in VLANS.items():
-                        prefix_role = Role.objects.get(slug=vlan_name)
-                        vlan = VLAN.objects.create(
-                            vid=vlan_data["vlan_id"],
-                            name=f"{rack_name}-{vlan_name}",
-                            site=self.site,
-                            role=prefix_role,
-                            status=vlan_status,
-                            tenant=self.tenant,
-                        )
-                        vlan_block = Prefix.objects.filter(
-                            site=self.site, status=container_status, role=prefix_role
-                        ).first()
+                # if role == "leaf":
+                #     for vlan_name, vlan_data in VLANS.items():
+                #         prefix_role = Role.objects.get(slug=vlan_name)
+                #         vlan = VLAN.objects.create(
+                #             vid=vlan_data["vlan_id"],
+                #             name=f"{rack_name}-{vlan_name}",
+                #             site=self.site,
+                #             role=prefix_role,
+                #             status=vlan_status,
+                #             tenant=self.tenant,
+                #         )
+                #         vlan_block = Prefix.objects.filter(
+                #             site=self.site, status=container_status, role=prefix_role
+                #         ).first()
 
-                        # Find Next available Network
-                        first_avail = vlan_block.get_first_available_prefix()
-                        subnet = list(first_avail.subnet(24))[0]
-                        vlan_prefix = Prefix.objects.create(
-                            prefix=str(subnet),
-                            vlan=vlan,
-                            status=prefix_status,
-                            role=prefix_role,
-                            site=self.site,
-                            tenant=self.tenant,
-                        )
-                        vlan_prefix.validated_save()
+                #         # Find Next available Network
+                #         first_avail = vlan_block.get_first_available_prefix()
+                #         subnet = list(first_avail.subnet(24))[0]
+                #         vlan_prefix = Prefix.objects.create(
+                #             prefix=str(subnet),
+                #             vlan=vlan,
+                #             status=prefix_status,
+                #             role=prefix_role,
+                #             site=self.site,
+                #             tenant=self.tenant,
+                #         )
+                #         vlan_prefix.validated_save()
 
-                        intf_name = f"vlan{vlan_data['vlan_id']}"
-                        intf = Interface.objects.create(
-                            name=intf_name, device=device, type=InterfaceTypeChoices.TYPE_VIRTUAL
-                        )
+                #         intf_name = f"vlan{vlan_data['vlan_id']}"
+                #         intf = Interface.objects.create(
+                #             name=intf_name, device=device, type=InterfaceTypeChoices.TYPE_VIRTUAL
+                #         )
 
-                        # Create IP Addresses on both sides
-                        vlan_ip = IPAddress.objects.create(
-                            address=str(subnet[0]),
-                            assigned_object=intf,
-                            status=ip_status,
-                            tenant=self.tenant,
-                            dns_name=f"ip-{str(subnet[0]).replace('.', '-')}.{vlan_name}.{site_code}.{self.tenant.description}",
-                        )
+                #         # Create IP Addresses on both sides
+                #         vlan_ip = IPAddress.objects.create(
+                #             address=str(subnet[0]),
+                #             assigned_object=intf,
+                #             status=ip_status,
+                #             tenant=self.tenant,
+                #             dns_name=f"ip-{str(subnet[0]).replace('.', '-')}.{vlan_name}.{site_code}.{self.tenant.description}",
+                #         )
 
-                        RelationshipAssociation.objects.create(
-                            relationship=rel_device_vlan,
-                            source_type=rel_device_vlan.source_type,
-                            source_id=device.id,
-                            destination_type=rel_device_vlan.destination_type,
-                            destination_id=vlan.id,
-                        )
+                #         RelationshipAssociation.objects.create(
+                #             relationship=rel_device_vlan,
+                #             source_type=rel_device_vlan.source_type,
+                #             source_id=device.id,
+                #             destination_type=rel_device_vlan.destination_type,
+                #             destination_id=vlan.id,
+                #         )
 
-                        RelationshipAssociation.objects.create(
-                            relationship=rel_rack_vlan,
-                            source_type=rel_rack_vlan.source_type,
-                            source_id=rack.id,
-                            destination_type=rel_rack_vlan.destination_type,
-                            destination_id=vlan.id,
-                        )
-        
+                #         RelationshipAssociation.objects.create(
+                #             relationship=rel_rack_vlan,
+                #             source_type=rel_rack_vlan.source_type,
+                #             source_id=rack.id,
+                #             destination_type=rel_rack_vlan.destination_type,
+                #             destination_id=vlan.id,
+                        
         
 
 register_jobs(CreatePop)
