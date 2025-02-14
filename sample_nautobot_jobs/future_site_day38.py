@@ -77,7 +77,7 @@ RACK_WIDTH = 19
 RACK_TYPE = RackTypeChoices.TYPE_4POST
 DEVICE_ROLES = {
     "edge": {
-        "nbr": 2,
+        "per_rack": 1,
         "device_type": "DCS-7280CR2-60",
         "platform": "arista_eos",
         "rack_elevation": 40,
@@ -89,7 +89,7 @@ DEVICE_ROLES = {
         ],
     },
     "leaf": {
-        "nbr": 6,
+        "per_rack": 3,
         "device_type": "DCS-7150S-24",
         "platform": "arista_eos",
         "rack_elevation": 44,
@@ -424,77 +424,99 @@ class CreatePop(Job):
         # ----------------------------------------------------------------------------
         # Create Racks
         # ----------------------------------------------------------------------------
-        num_rack = 2 # Number of racks to create. Can be converted as an input parameter
-        for i in range(1, num_rack + 1): 
-            rack_name = f"{site_code.upper()}-{100 +  i}"         
+        num_rack = 2  # Number of racks to create
+        racks = []  # List to store created racks
+
+        for num in range(1, num_rack + 1): 
+            rack_name = f"{site_code.upper()}-{100 + num}"         
             rack, created = Rack.objects.get_or_create(
-                name = rack_name,
-                location = self.site,
-                u_height = RACK_HEIGHT,
-                width = RACK_WIDTH,
-                type = RACK_TYPE,
-                status = ACTIVE_STATUS,
-                tenant = tenant,
+                name=rack_name,
+                location=self.site,
+                u_height=RACK_HEIGHT,
+                width=RACK_WIDTH,
+                type=RACK_TYPE,
+                status=ACTIVE_STATUS,
+                tenant=tenant,
             )
+            racks.append(rack)  # Store created rack
             self.logger.info(f"Successfully created {rack_name}.")
 
         # ----------------------------------------------------------------------------
         # Create Devices
         # ----------------------------------------------------------------------------
-        #####DEFINE CONTENT TYPE FOR LEAF AND EDGE HERE#########
-        for role, data in DEVICE_ROLES.items():
-            device_role, created = Role.objects.get_or_create(
-                        name=role, color = data.get("color")
+        # Initialize global device counters
+        global_device_counter = {role: 1 for role in DEVICE_ROLES}  
+
+        for rack in racks:  # Now `racks` is defined!
+            for role, data in DEVICE_ROLES.items():
+                device_role, created = Role.objects.get_or_create(
+                    name=role, 
+                    color=data.get("color")
+                )
+                self.logger.info(f"Created '{device_role}'")
+
+                position = data.get("rack_elevation", 1)  # Start position
+                num_devices = data.get("per_rack")  # Number of devices per rack
+
+                for _ in range(num_devices):                
+                    device_type = DeviceType.objects.get(model=data.get("device_type"))
+                    device_name = f"{site_code}-{role}-{global_device_counter[role]:02}"          
+                    platform = Platform.objects.get(network_driver=data.get("platform"))              
+
+                    device_obj, created = Device.objects.get_or_create(
+                        device_type=device_type, 
+                        name=device_name,
+                        location=self.site,
+                        status=ACTIVE_STATUS,
+                        role=device_role,
+                        rack=rack,  
+                        platform=platform,
+                        position=position, 
+                        face="front",                   
+                        tenant=tenant,
                     )
-            self.logger.info(f"Created '{device_role}'")
-            # Initialize position based on provided data
-            position = (data.get("rack_elevation"))
-            for i in range(1, data.get("nbr", 2) + 1):                
-                device_type = DeviceType.objects.get(model=data.get("device_type"))
-                device_name = f"{site_code}-{role}-{i:02}"          
-                platform = Platform.objects.get(network_driver=data.get("platform"))
-                rack_name = f"{site_code}-{100 + i}" # Need to find a better way so it doesn get re-declared
-                rack = Rack.objects.filter(name=rack_name, location=self.site).first()
-        
-                device_obj, created = Device.objects.get_or_create(
-                    device_type = device_type, 
-                    name = device_name,
-                    location = self.site,
-                    status = ACTIVE_STATUS,
-                    role = device_role,
-                    rack = rack,
-                    platform = platform,
-                    position = position, 
-                    face = "front",                   
-                    tenant = tenant,
-                )
-                self.logger.info(f"Device {device_name} successfully created")
-                position += 1
+                    self.logger.info(f"Device {device_name} successfully created in {rack.name}")
 
-                # Generate Loopback interface and assign Loopback
-                loopback_prefix = Prefix.objects.get(
-                    location = self.site,
-                    role = loopback_role,
-                )
+                    position += 1  # Move to next rack unit
+                    global_device_counter[role] += 1  # Increment the counter
 
-                loopback_available_ip = loopback_prefix.get_first_available_ip()
-                loopback_ip, created = IPAddress.objects.get_or_create(
-                    address = str(loopback_available_ip),
-                    status = ACTIVE_STATUS,
-                    tenant = tenant,
-                    dns_name=f"{role}-{i:02}.{site_code}.{tenant.description}",
-                )
-                loopback_intf, created = Interface.objects.get_or_create(
-                    name="Loopback0", 
-                    type=InterfaceTypeChoices.TYPE_VIRTUAL, 
-                    device=device_obj, 
-                    status=ACTIVE_STATUS,
-                    ip_addresses=str(loopback_available_ip)
-                )
-                self.logger.info(f"{loopback_intf}")
-                
-                device_obj.primary_ip4 = loopback_ip
-                self.logger.info(f" Created '{loopback_intf}' with '{loopback_available_ip}' to {device_name}")
+                    # Assign Loopback IP
+                    loopback_prefix = Prefix.objects.get(
+                        location=self.site,
+                        role=loopback_role,
+                    )
+
+                    loopback_available_ip = loopback_prefix.get_first_available_ip()
+                    
+                    if not loopback_available_ip:
+                        self.logger.error(f"No available IPs in prefix {loopback_prefix}")
+                        return
+
+                    loopback_ip, created = IPAddress.objects.get_or_create(
+                        address=str(loopback_available_ip),
+                        status=ACTIVE_STATUS,
+                        tenant=tenant,
+                        dns_name=f"{role}-{global_device_counter[role]:02}.{site_code}.{tenant.description}"
+                    )
+
+                    loopback_ip.mask_length = 32  
+                    loopback_ip.save()
+
+                    loopback_intf, created = Interface.objects.get_or_create(
+                        name="Loopback0", 
+                        type=InterfaceTypeChoices.TYPE_VIRTUAL, 
+                        device=device_obj, 
+                        status=ACTIVE_STATUS,
+                    )
+
+                    loopback_intf.ip_addresses.add(loopback_ip)
+                    loopback_intf.save()
+                    
+                    device_obj.primary_ip4 = loopback_ip
+                    device_obj.save()
+                    self.logger.info(f" Created '{loopback_intf}' with '{loopback_available_ip}' under {device_name}")
+
+
 
                 # # Assign Role to Interfaces
                 # intfs = iter(Interface.objects.filter(device=device_obj))
