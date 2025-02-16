@@ -1,5 +1,5 @@
 
-"""Job to create a new site of type POP."""
+"""Job to create a new site of type POP with optional parent site support."""
 
 from itertools import product
 import re
@@ -79,39 +79,38 @@ ROLE_PREFIX_SIZE = 18
 RACK_HEIGHT = 48
 RACK_WIDTH = 19
 RACK_TYPE = RackTypeChoices.TYPE_4POST
-DEVICE_ROLES = {
-    "edge": {
-        "per_rack": 1,
-        "device_type": "DCS-7280CR2-60",
-        "platform": "arista_eos",
-        "rack_elevation": 32,
-        "color": "ff9800",
-        "interfaces": [
-            ("peer", 2),
-            ("leaf", 12),
-            ("external", 8),
-        ],
-    },
-    "leaf": {
-        "per_rack": 3,
-        "device_type": "DCS-7150S-24",
-        "platform": "arista_eos",
-        "rack_elevation": 38,
-        "color": "3f51b5",
-        "interfaces": [
-            ("edge", 4),
-            ("access", 20),
-        ],
-    },
-}
+DEVICE_ROLES_YAML = """
+device_roles:
+  edge:
+    per_rack: 1
+    device_type: "DCS-7280CR2-60"
+    platform: "arista_eos"
+    rack_elevation: 32
+    color: "ff9800"
+    interfaces:
+      - [peer, 2]
+      - [leaf, 12]
+      - [external, 8]
+  leaf:
+    per_rack: 3
+    device_type: "DCS-7150S-24"
+    platform: "arista_eos"
+    rack_elevation: 38
+    color: "3f51b5"
+    interfaces:
+      - [edge, 4]
+      - [access, 20]
+"""
+DEVICE_ROLES = yaml.safe_load(DEVICE_ROLES_YAML)["device_roles"]
 
-prefix_ct = ContentType.objects.get_for_model(Prefix)
-vlan_ct = ContentType.objects.get_for_model(VLAN)
 
 def create_prefix_roles(logger):
     """Create all Prefix Roles defined in PREFIX_ROLES and add content types for IPAM Prefix and VLAN."""
 
     # Retrieve the content type for Prefix and VLAN models.
+    prefix_ct = ContentType.objects.get_for_model(Prefix)
+    vlan_ct = ContentType.objects.get_for_model(VLAN)
+
     for role in PREFIX_ROLES:
         role_obj, created = Role.objects.get_or_create(name=role)
         # Add the Prefix and VLAN content types to the role.
@@ -246,17 +245,17 @@ class CreatePop(Job):
     model=LocationType,
     description = "Select location type for new site."
     )
+    site_name = StringVar(description="Name of the new site", label="Site Name")
+    site_facility = StringVar(description="Facility of the new site", label="Site Facility")
     parent_site = ObjectVar(
         model=Location,
         required=False,
         description="Select an existing site to nest this site under. Site will be created as a Region if left blank.",
         label="Parent Site"
     )
-    site_name = StringVar(description="Name of the new site", label="Site Name")
-    site_facility = StringVar(description="Facility of the new site", label="Site Facility")
-    
-    site_code = StringVar(description="Enter Site Code as 2-letter state and 2-digit site ID e.g. NY01 for New York Store ID 01")
+    site_code = StringVar(description="Enter Site Code as 2-letter state and 2-digit store ID e.g. NY01 for New York Store ID 01")
     tenant = ObjectVar(model=Tenant)
+    leaf_count = IntegerVar(description="Enter number of switches (leaf) for this site.")
 
 
     class Meta:
@@ -266,11 +265,14 @@ class CreatePop(Job):
         description = """
         Create a new POP Site.
         A new /16 will automatically be allocated from the 'POP Global Pool' Prefix.
-        """    
+        """
+        
+        ####DAY36####
+        field_order = ["location_type", "parent_site", "site_name", "site_facility", "site_code", "tenant", "leaf_count"]
         
         
     ####DAY36PassNewParameters####
-    def run(self, location_type, site_name, site_facility, tenant, site_code, parent_site=None):
+    def run(self, location_type, site_name, site_facility, tenant, site_code, leaf_count, parent_site=None):
         """Main function to create a site."""
 
         # ----------------------------------------------------------------------------
@@ -279,7 +281,7 @@ class CreatePop(Job):
         # ----------------------------------------------------------------------------
         create_prefix_roles(self.logger)
         create_tenant(self.logger)
-        # create_vlans(self.logger)
+        create_vlans(self.logger)
         create_device_types(self.logger)
 
         # ----------------------------------------------------------------------------
@@ -304,13 +306,14 @@ class CreatePop(Job):
             self.site.validated_save()
             self.logger.info(message)
 
-            pop_role = Role.objects.get(name="pop")
-            self.logger.info(f"Assigning '{site_name}' as '{pop_role}' role.")
-
             # ----------------------------------------------------------------------------
             # Allocate Prefix for this POP
             # ----------------------------------------------------------------------------
-        
+            # Search if there is already a POP prefix associated with this side
+            # if not search the Top Level Prefix and create a new one
+            pop_role = Role.objects.get(name="pop")
+            self.logger.info(f"Assigning '{site_name}' as '{pop_role}' role.")
+
             # Find the first available /16 prefix that isn't assigned to a site yet
             pop_prefix = Prefix.objects.filter(
                 type="container",  # Ensure it's a top-level subnet assigned as a container
@@ -333,6 +336,11 @@ class CreatePop(Job):
                     status = ACTIVE_STATUS,
                     prefix_length = 8
                 ).first()
+
+                # Check for available /8 in Global pool
+                if not top_level_prefix:
+                    self.logger.warning(f"No /8 available. Check global pool assignments.")
+                    return
 
                 # Get the first available prefix within the /8
                 first_avail = top_level_prefix.get_first_available_prefix()
@@ -357,7 +365,8 @@ class CreatePop(Job):
                     raise Exception("No available /16 prefixes found within the /8 range.")        
         
         else:
-            self.logger.warning(f"Site '{site_name}' already exists.") 
+            self.logger.warning(f"Site '{site_name}' already exists.")
+            return
 
         ####DAY37####
         # ----------------------------------------------------------------------------
@@ -446,6 +455,7 @@ class CreatePop(Job):
         rel_rack_vlan = get_or_create_relationship(
             "Rack to VLAN", "rack_to_vlan", Rack, VLAN, RelationshipTypeChoices.TYPE_ONE_TO_MANY
         )
+        ####CREATE CIRCUITS####
 
         # ----------------------------------------------------------------------------
         # Create Racks
@@ -485,7 +495,7 @@ class CreatePop(Job):
 
                 # Start position for the first device in this rack
                 position = data.get("rack_elevation", 1)
-                num_devices = data.get("per_rack") 
+                num_devices = data.get("per_rack") ######FIX ME: CHANGE TO AN INPUT as leaf count
 
                 for _ in range(num_devices):                
                     device_type = DeviceType.objects.get(model=data.get("device_type"))
@@ -539,14 +549,15 @@ class CreatePop(Job):
                         device=device_obj, 
                         status=ACTIVE_STATUS,
                     )
+                    self.logger.info(f"{loopback_intf}")
 
                     loopback_intf.ip_addresses.add(loopback_ip)
                     loopback_intf.save()
                     
-                    # Assign L0 IP as primary IPv4 for device
+                    # Assign L0 as primary IPv4 for device
                     device_obj.primary_ip4 = loopback_ip
                     device_obj.save()
-                    self.logger.info(f"Created '{loopback_intf}' with '{loopback_ip}' and assigned to {device_name} as primary IP")
+                    self.logger.info(f"Created '{loopback_intf}' with '{loopback_available_ip}' assigned to {device_name} as primary IP")
 
                     # Assign Role to Interfaces
                     intfs = iter(Interface.objects.filter(device=device_obj))
@@ -557,21 +568,10 @@ class CreatePop(Job):
                                 intf._custom_field_data = {"role": int_role}
                                 intf.save()
 
-                    # VLAN Assignment for leaf devices
+                    # VLAN Assignment for Leaf devices
                     if role == "leaf":
-                        for vlan_name, vlan_id in VLAN_INFO.items():                            
+                        for vlan_name, vlan_id in VLAN_INFO.items():
                             vlan_role = Role.objects.get(name=vlan_name)
-                            
-                            # Create vlan 
-                            vlan = VLAN.objects.create(
-                                vid=vlan_id,
-                                name=f"{rack_name}-{vlan_name}",
-                                location=self.site,
-                                tenant=tenant,
-                                role=vlan_role,
-                                status=ACTIVE_STATUS,
-                            )
-
                             vlan_block = Prefix.objects.filter(
                                 location=self.site, 
                                 status=ACTIVE_STATUS, 
@@ -608,17 +608,17 @@ class CreatePop(Job):
                             intf.save()
 
                             # # Create Relationships
-                            # RelationshipAssociation.objects.create(
+                            # RelationshipAssociation.objects.get_or_create(
                             #     relationship=rel_device_vlan,
                             #     source=device_obj,
-                            #     destination=vlan
-
                             # )
 
                             # RelationshipAssociation.objects.get_or_create(
                             #     relationship=rel_rack_vlan,
                             #     source=rack,
-                            #     destination=vlan
                             # )
-            
+
+                        
+        
+
 register_jobs(CreatePop)
