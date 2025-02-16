@@ -1,4 +1,3 @@
-
 """Job to create a new site of type POP."""
 
 from itertools import product
@@ -238,6 +237,23 @@ def expand_interface_pattern(pattern):
     return expanded_names
 
 
+def get_or_create_relationship(label, key, source_model, destination_model, rel_type):
+    try:
+        rel, created = Relationship.objects.get_or_create(
+            key=key,
+            defaults={
+                "label": label,
+                "source_type": ContentType.objects.get_for_model(source_model),
+                "destination_type": ContentType.objects.get_for_model(destination_model),
+                "type": rel_type,
+            }
+        )
+        return rel
+    except Exception as e:
+        self.logger.error(f"Error creating relationship {label}: {e}")
+        return Relationship.objects.get(key=key)  # Fallback to existing relationship
+
+
 class CreatePop(Job):
     """Job to create a new site of type POP."""
     ####DAY36####
@@ -279,8 +295,19 @@ class CreatePop(Job):
         # ----------------------------------------------------------------------------
         create_prefix_roles(self.logger)
         create_tenant(self.logger)
-        # create_vlans(self.logger)
+        create_vlans(self.logger)
         create_device_types(self.logger)
+
+        # ----------------------------------------------------------------------------
+        # Create Relationships
+        # ----------------------------------------------------------------------------
+
+        rel_device_vlan = get_or_create_relationship(
+            "Device to VLAN", "device_to_vlan", Device, VLAN, RelationshipTypeChoices.TYPE_ONE_TO_MANY
+        )
+        rel_rack_vlan = get_or_create_relationship(
+            "Rack to VLAN", "rack_to_vlan", Rack, VLAN, RelationshipTypeChoices.TYPE_ONE_TO_MANY
+        )
 
         # ----------------------------------------------------------------------------
         # Create Site
@@ -381,7 +408,8 @@ class CreatePop(Job):
             parent = pop_prefix,
             status = ACTIVE_STATUS,
             location = self.site,
-            tenant = tenant
+            tenant = tenant,
+            vlan = VLAN.objects.get(name=server_role)
         )
         self.logger.info(f"'{server_prefix}' assigned to '{server_role}'.")
 
@@ -393,7 +421,8 @@ class CreatePop(Job):
             parent = pop_prefix,
             status = ACTIVE_STATUS,
             location = self.site,
-            tenant = tenant
+            tenant = tenant,
+            vlan = VLAN.objects.get(name=mgmt_role)
         )
         self.logger.info(f"'{mgmt_prefix}' assigned to '{mgmt_role}'.")
 
@@ -420,32 +449,6 @@ class CreatePop(Job):
             tenant = tenant
         )
         self.logger.info(f"'{p2p_prefix}' assigned to '{p2p_role}'.") 
-
-        # ----------------------------------------------------------------------------
-        # Create Relationships
-        # ----------------------------------------------------------------------------
-        def get_or_create_relationship(label, key, source_model, destination_model, rel_type):
-            try:
-                rel, created = Relationship.objects.get_or_create(
-                    key=key,
-                    defaults={
-                        "label": label,
-                        "source_type": ContentType.objects.get_for_model(source_model),
-                        "destination_type": ContentType.objects.get_for_model(destination_model),
-                        "type": rel_type,
-                    }
-                )
-                return rel
-            except Exception as e:
-                self.logger.error(f"Error creating relationship {label}: {e}")
-                return Relationship.objects.get(key=key)  # Fallback to existing relationship
-
-        rel_device_vlan = get_or_create_relationship(
-            "Device to VLAN", "device_to_vlan", Device, VLAN, RelationshipTypeChoices.TYPE_ONE_TO_MANY
-        )
-        rel_rack_vlan = get_or_create_relationship(
-            "Rack to VLAN", "rack_to_vlan", Rack, VLAN, RelationshipTypeChoices.TYPE_ONE_TO_MANY
-        )
 
         # ----------------------------------------------------------------------------
         # Create Racks
@@ -561,16 +564,6 @@ class CreatePop(Job):
                     if role == "leaf":
                         for vlan_name, vlan_id in VLAN_INFO.items():                            
                             vlan_role = Role.objects.get(name=vlan_name)
-                            
-                            # Create vlan 
-                            vlan = VLAN.objects.create(
-                                vid=vlan_id,
-                                name=f"{rack_name}-{vlan_name}",
-                                location=self.site,
-                                tenant=tenant,
-                                role=vlan_role,
-                                status=ACTIVE_STATUS,
-                            )
 
                             vlan_block = Prefix.objects.filter(
                                 location=self.site, 
@@ -587,6 +580,7 @@ class CreatePop(Job):
                                 role=vlan_role,
                                 location=self.site,
                                 tenant=tenant,
+                                vlan=VLAN.objects.get(name=vlan_role)
                             )
                             
                             # Create IP Addresses on VLAN Interface
@@ -622,3 +616,4 @@ class CreatePop(Job):
                             # )
             
 register_jobs(CreatePop)
+
