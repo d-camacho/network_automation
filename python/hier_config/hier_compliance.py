@@ -10,7 +10,7 @@ with open("actual.txt", "r") as f:
     actual = f.read()
 with open("intended.txt", "r") as f:
     intended = f.read()
-hierconfig_os = "iosxr"
+hierconfig_os = "ios"
 
 try:
     

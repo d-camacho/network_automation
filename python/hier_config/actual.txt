@@ -1,13 +1,17 @@
-vdc stage-lax-cor-r1 id 1
-  limit-resource module-type m1 m1xl m2xl f2e
-  limit-resource module-type m1 m1xl m2xl f2e
-  allocate interface Ethernet2/1-48
-  allocate interface Ethernet3/1-48
-  allocate interface Ethernet4/1-48
-  limit-resource vlan minimum 16 maximum 4094
-  limit-resource vrf minimum 2 maximum 4096
-  limit-resource port-channel minimum 0 maximum 768
-  limit-resource u4route-mem minimum 96 maximum 96
-  limit-resource u6route-mem minimum 24 maximum 24
-  limit-resource m4route-mem minimum 58 maximum 58
-  limit-resource m6route-mem minimum 8 maximum 8
+snmp-server community MASKED_SECRET RO IPv4 V4-SNMP-IN
+snmp-server community MASKED_SECRET RO IPv4 V4-SNMP-IN
+
+snmp-server traps rf
+snmp-server traps ntp
+snmp-server traps ethernet oam events
+snmp-server traps snmp
+snmp-server traps snmp linkup
+snmp-server traps snmp linkdown
+snmp-server traps config
+snmp-server traps entity
+snmp-server traps syslog
+snmp-server traps system
+snmp-server chassis-id DUKEDVAC01
+snmp-server contact DUKEOOBD02;172.17.137.11;RSP0-PORT1;RSP1-PORT2;BVOPS;ATLANTA;;
+snmp-server location D2.109.37.35;;10540 DUKE DR;ALPHARETTA;GA;DUKE;;
+snmp-server trap-source Loopback0
